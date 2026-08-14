@@ -1,0 +1,12 @@
+{
+  "name": "rigor",
+  "version": "1.0.0",
+  "description": "Statistically honest AI-model evaluation: every number carries uncertainty, every method is validated by simulation.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "FAST=1 node test/run.mjs",
+    "test:full": "node test/run.mjs",
+    "demo": "node rigor/cli.js demo rigor-report.html"
+  }
+}
