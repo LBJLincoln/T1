@@ -37,11 +37,11 @@ validated by simulation against known ground truth in the test suite.**
 | Question | Method |
 |---|---|
 | How good is each model? | Mean score with **BCa bootstrap** 95% intervals (skew-robust) |
-| Which differences are real? | **Paired sign-flip permutation tests** on per-task differences, **Holm-corrected** across the family, with **Cliff's δ** effect sizes |
-| What can this benchmark detect? | **Minimum detectable difference** at 80% power, and tasks required to resolve 5- and 2-point gaps — validated against simulation with the actual test |
+| Which differences are real? | **Paired sign-flip permutation tests** on per-task differences, **Holm-corrected** across the family, with **paired dominance** effect sizes |
+| What can this benchmark detect? | **Minimum detectable difference** at 80% power under the report's own Holm-corrected rule, and tasks required to resolve 5- and 2-point gaps — validated against simulation with the actual test |
 | What does quality cost? | Cost–quality **Pareto frontier with dominance probabilities** (bootstrap over the shared task set, pairing preserved) |
 | Can the judges be trusted? | **Krippendorff's α** (handles missing ratings) with leave-one-out; **position bias** from an order-swapped design with Wilson intervals; **self-preference** screening by judge family |
-| Do head-to-head verdicts agree? | **Bradley–Terry** strengths (Hunter's MM, ε-connectivity), bootstrap intervals, and **rank stability** — how often each model keeps its rank across resampled worlds |
+| Do head-to-head verdicts agree? | **Bradley–Terry** strengths (Hunter's MM, ε-connectivity, residual-checked convergence) fitted **excluding flagged judges** with an all-verdicts sensitivity fit, cluster-bootstrap intervals, and **rank stability** |
 
 Everything lands in a single-file HTML report, structured as questions and
 verdicts. The report states what the benchmark *cannot* claim with the same
@@ -107,14 +107,22 @@ test/                  unit, calibration, and truth-recovery suites
 
 ## Honest limitations
 
-- Pairwise permutation tests within one benchmark share models, so the ten
-  tests are dependent; Holm remains valid under dependence (that is why it
-  was chosen), but power calculations treat pairs one at a time.
-- The MDD formula is a normal approximation; the suite validates it against
-  the exact permutation test at realistic n, but at very small n (< ~10
-  tasks) trust the simulation, not the formula.
-- Bradley–Terry bootstrap resamples matches independently; verdicts on the
-  same task by different judges are treated as independent matches.
+- Pairwise permutation tests within one benchmark share models, so the tests
+  are dependent; Holm remains valid under dependence (that is why it was
+  chosen). Resolution figures are quoted at the family's worst-case threshold
+  α/m — a conservative bound, and themselves estimated from the same data
+  they describe.
+- The MDD formula is a normal approximation with a hard refusal below the
+  sign-flip test's discreteness floor (n ≤ 5 at α=0.05 detects nothing); the
+  suite validates it against the exact permutation test at realistic n.
+- Bradley–Terry: the primary fit excludes judges the diagnostics flagged, and
+  an all-verdicts sensitivity fit ships beside it; the bootstrap clusters
+  order-swapped duplicate presentations so they are never resampled apart.
+  Verdicts by *different* judges on the same task remain treated as
+  independent clusters.
+- Krippendorff's α is reported as a point estimate against fixed gates; near
+  a gate boundary the verdict can turn on sampling noise (bootstrapping α is
+  the known remedy and is not yet implemented).
 - LLM-as-judge diagnostics detect the pathologies they measure. A panel that
   is *consistently* wrong in the same direction passes every consistency
   check; only better ground truth fixes that.

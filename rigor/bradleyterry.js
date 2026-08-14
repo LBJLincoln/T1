@@ -14,8 +14,11 @@
  * MLE exists even when one model never lost — otherwise its strength diverges
  * and the algorithm silently degenerates.
  *
- * Uncertainty comes from bootstrap over matches: resample the match list with
- * replacement, refit, take percentile intervals on the log-strength scale.
+ * Uncertainty comes from a CLUSTER bootstrap: matches sharing a cluster key
+ * (e.g. the two order-swapped presentations of one comparison) are resampled
+ * together, never split. Treating swapped duplicates as independent matches
+ * understates uncertainty — measured coverage fell to ~86% from a nominal 95%
+ * before clustering. Intervals are percentile on the log-strength scale.
  * That answers the question a rating point cannot: "could this ranking
  * plausibly be the other way round?" — reported as rankStability, the
  * fraction of bootstrap worlds in which each model holds its modal rank.
@@ -26,10 +29,11 @@ import { rng, quantile } from './stats.js';
 
 /**
  * @param models  array of model names
- * @param matches array of {a, b, winner} where winner is a|b|null (tie)
+ * @param matches array of {a, b, winner, cluster?} — winner is a|b|null (tie);
+ *                matches sharing `cluster` are one resampling unit
  */
 export function bradleyTerry(models, matches, {
-  epsilon = 0.1, maxIter = 2000, tol = 1e-10, B = 1000, seed = 11, level = 0.95,
+  epsilon = 0.1, maxIter = 20000, B = 1000, seed = 11, level = 0.95,
 } = {}) {
   const index = new Map(models.map((m, i) => [m, i]));
   const k = models.length;
@@ -37,10 +41,19 @@ export function bradleyTerry(models, matches, {
 
   const fit = (wins, games) => {
     // wins[i][j]: (possibly fractional) wins of i over j; games = wins + wins^T.
+    // Convergence is judged on the likelihood-equation residual
+    // W_i − Σ_j n_ij·π_i/(π_i+π_j), scaled by total games — an absolute delta
+    // on π is meaningless when strengths span orders of magnitude, and MM's
+    // linear rate approaches 1 on sweep-heavy data, where a loose criterion
+    // silently truncated fits by hundreds of Elo points.
     let pi = new Array(k).fill(1);
+    let converged = false;
+    let totalGames = 0;
+    for (let i = 0; i < k; i++) for (let j = i + 1; j < k; j++) totalGames += games[i][j];
+    const tolRes = 1e-8 * Math.max(1, totalGames);
     for (let iter = 0; iter < maxIter; iter++) {
-      let maxDelta = 0;
       const next = new Array(k);
+      let maxResidual = 0;
       for (let i = 0; i < k; i++) {
         let W = 0, denom = 0;
         for (let j = 0; j < k; j++) {
@@ -48,19 +61,17 @@ export function bradleyTerry(models, matches, {
           W += wins[i][j];
           denom += games[i][j] / (pi[i] + pi[j]);
         }
+        maxResidual = Math.max(maxResidual, Math.abs(W - denom * pi[i]));
         next[i] = denom > 0 ? W / denom : pi[i];
       }
+      if (maxResidual < tolRes) { converged = true; break; }
       // Normalise to geometric mean 1: strengths are only identified up to scale.
       const logMean = next.reduce((a, p) => a + Math.log(p), 0) / k;
       const scale = Math.exp(logMean);
-      for (let i = 0; i < k; i++) {
-        next[i] /= scale;
-        maxDelta = Math.max(maxDelta, Math.abs(next[i] - pi[i]));
-      }
+      for (let i = 0; i < k; i++) next[i] /= scale;
       pi = next;
-      if (maxDelta < tol) break;
     }
-    return pi;
+    return { pi, converged };
   };
 
   const tally = (ms) => {
@@ -83,19 +94,27 @@ export function bradleyTerry(models, matches, {
   };
 
   const { wins, games } = tally(matches);
-  const point = fit(wins, games);
+  const { pi: point, converged } = fit(wins, games);
   const logPoint = point.map(Math.log);
 
-  // Bootstrap over matches.
+  // Cluster bootstrap: resample clusters, carrying every match in a cluster
+  // together so dependent duplicates stay dependent.
   const rand = rng(seed);
-  const n = matches.length;
+  const clusterMap = new Map();
+  matches.forEach((m, i) => {
+    const key = m.cluster ?? '__solo__' + i;
+    if (!clusterMap.has(key)) clusterMap.set(key, []);
+    clusterMap.get(key).push(m);
+  });
+  const clusters = [...clusterMap.values()];
+  const nc = clusters.length;
   const logReps = Array.from({ length: k }, () => []);
   const rankCounts = Array.from({ length: k }, () => new Array(k).fill(0));
   for (let b = 0; b < B; b++) {
-    const res = new Array(n);
-    for (let i = 0; i < n; i++) res[i] = matches[(rand() * n) | 0];
+    const res = [];
+    for (let i = 0; i < nc; i++) res.push(...clusters[(rand() * nc) | 0]);
     const t = tally(res);
-    const p = fit(t.wins, t.games);
+    const { pi: p } = fit(t.wins, t.games);
     const order = p.map((v, i) => [v, i]).sort((x, y) => y[0] - x[0]);
     for (let r = 0; r < k; r++) rankCounts[order[r][1]][r]++;
     for (let i = 0; i < k; i++) logReps[i].push(Math.log(p[i]));
@@ -107,6 +126,7 @@ export function bradleyTerry(models, matches, {
     const modalRank = rankCounts[i].indexOf(Math.max(...rankCounts[i]));
     return {
       model: m,
+      converged,
       // Log-strength: 0 is the field average by construction.
       logStrength: logPoint[i],
       lo: quantile(sorted, alpha),

@@ -18,7 +18,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 const f1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
 const f2 = (x) => (Math.round(x * 100) / 100).toFixed(2);
 const f3 = (x) => (Math.round(x * 1000) / 1000).toFixed(3);
-const pFmt = (p) => (p < 0.001 ? '<0.001' : f3(p));
+const pFmt = (p) => (p < 0.001 ? '&lt;0.001' : f3(p));
 const money = (x) => '$' + (x < 0.1 ? x.toFixed(3) : x.toFixed(2));
 
 const CSS = /* css */`
@@ -216,6 +216,7 @@ function logTicks(lo, hi) {
 // ---------------------------------------------------------------------------
 
 export function renderReport(result, { truth = null } = {}) {
+  const LVL = Math.round(result.config.level * 100);
   const models = result.models.slice().sort((a, b) => b.mean - a.mean);
   const nameOf = Object.fromEntries(result.models.map((m) => [m.id, m.name]));
 
@@ -227,7 +228,7 @@ export function renderReport(result, { truth = null } = {}) {
     .sort((a, b) => Math.abs(b.meanDiff) - Math.abs(a.meanDiff))
     .map((p) => {
       const [hi, lo] = p.meanDiff > 0 ? [p.a, p.b] : [p.b, p.a];
-      return `<li><b>${esc(nameOf[hi])}</b> outperforms <b>${esc(nameOf[lo])}</b> by ${f1(Math.abs(p.meanDiff))} points (Holm-adjusted p ${pFmt(p.pAdjusted)}, Cliff's δ ${f2(Math.abs(p.delta))}).</li>`;
+      return `<li><b>${esc(nameOf[hi])}</b> outperforms <b>${esc(nameOf[lo])}</b> by ${f1(Math.abs(p.meanDiff))} points (Holm-adjusted p ${pFmt(p.pAdjusted)}, paired dominance ${f2(Math.abs(p.dominance))}).</li>`;
     }).join('');
   const cannotList = nsig.map((p) =>
     `<li><b>${esc(nameOf[p.a])}</b> vs <b>${esc(nameOf[p.b])}</b>: observed gap ${f1(Math.abs(p.meanDiff))} points — not resolvable on ${result.power.tasks} tasks (adjusted p ${pFmt(p.pAdjusted)}). Ranking them would be storytelling.</li>`
@@ -237,10 +238,10 @@ export function renderReport(result, { truth = null } = {}) {
   const lo = Math.min(...models.map((m) => m.lo)), hi = Math.max(...models.map((m) => m.hi));
   const rankingSvg = intervalChart(
     models.map((m) => ({ label: m.name, v: m.mean, lo: m.lo, hi: m.hi })),
-    { domain: [Math.floor((lo - 3) / 5) * 5, Math.ceil((hi + 3) / 5) * 5] }
+    { domain: [Math.max(0, Math.floor((lo - 3) / 5) * 5), Math.min(100, Math.ceil((hi + 3) / 5) * 5)] }
   );
   const rankingTable = `<details><summary>Data table</summary><div class="scroll"><table>
-    <thead><tr><th>Model</th><th class="num">Mean</th><th class="num">95% CI</th><th class="num">SD</th><th class="num">Cost/task</th><th class="num">Time/task</th></tr></thead>
+    <thead><tr><th>Model</th><th class="num">Mean</th><th class="num">${LVL}% CI</th><th class="num">SD</th><th class="num">Cost/task</th><th class="num">Time/task</th></tr></thead>
     <tbody>${models.map((m) => `<tr><td>${esc(m.name)}</td><td class="num">${f1(m.mean)}</td><td class="num">[${f1(m.lo)}, ${f1(m.hi)}]</td><td class="num">${f1(m.sd)}</td><td class="num">${m.costPerTask != null ? money(m.costPerTask) : '—'}</td><td class="num">${m.secondsPerTask != null ? m.secondsPerTask + 's' : '—'}</td></tr>`).join('')}</tbody>
   </table></div></details>`;
 
@@ -249,11 +250,17 @@ export function renderReport(result, { truth = null } = {}) {
     .slice()
     .sort((a, b) => a.pAdjusted - b.pAdjusted)
     .map((p) => {
-      const [w, l] = p.meanDiff > 0 ? [p.a, p.b] : [p.b, p.a];
+      // The label is reordered winner-first, so every signed statistic must be
+      // flipped with it — printing the raw a−b sign under a reordered label
+      // once inverted the table's meaning whenever input order wasn't sorted.
+      const flip = p.meanDiff < 0;
+      const [w, l] = flip ? [p.b, p.a] : [p.a, p.b];
+      const dMean = flip ? -p.meanDiff : p.meanDiff;
+      const dDom = flip ? -p.dominance : p.dominance;
       return `<tr>
         <td>${esc(nameOf[w])} <span style="color:var(--ink-3)">vs</span> ${esc(nameOf[l])}</td>
-        <td class="num">${p.meanDiff > 0 ? '+' : ''}${f1(p.meanDiff)}</td>
-        <td class="num">${f2(p.delta)}</td>
+        <td class="num">+${f1(dMean)}</td>
+        <td class="num">${f2(dDom)}</td>
         <td class="num">${pFmt(p.p)}</td>
         <td class="num">${pFmt(p.pAdjusted)}</td>
         <td>${p.significant ? '<span class="chip sig">significant</span>' : '<span class="chip ns">not resolved</span>'}</td>
@@ -263,7 +270,7 @@ export function renderReport(result, { truth = null } = {}) {
   // ---- power tiles --------------------------------------------------------
   const pw = result.power;
   const powerTiles = `<div class="tiles">
-    <div class="tile"><div class="v">${f1(pw.mdd80)} pts</div><div class="l">Smallest true difference this benchmark detects with 80% power (${pw.tasks} tasks)</div></div>
+    <div class="tile"><div class="v">${Number.isFinite(pw.mdd80) ? f1(pw.mdd80) + ' pts' : 'nothing'}</div><div class="l">Smallest true difference detectable at 80% power under this report's Holm-corrected rule (${pw.tasks} tasks, worst-case α = ${pw.alphaFamily.toExponential(1)})</div></div>
     <div class="tile"><div class="v">${pw.tasksFor5pts}</div><div class="l">Tasks needed to resolve a 5-point difference</div></div>
     <div class="tile"><div class="v">${pw.tasksFor2pts}</div><div class="l">Tasks needed to resolve a 2-point difference</div></div>
     <div class="tile"><div class="v">${f1(pw.typicalDiffSd)}</div><div class="l">Typical SD of per-task score differences (drives all of the above)</div></div>
@@ -277,6 +284,7 @@ export function renderReport(result, { truth = null } = {}) {
       : alpha >= 0.667 ? '<span style="color:var(--s2);font-weight:600">tentative only (0.667 ≤ α &lt; 0.800)</span>'
       : '<span class="flag">unreliable (α &lt; 0.667) — scores should not be trusted</span>';
 
+    const hasSwaps = result.bias.overall.swappedPairs > 0;
     const biasItems = Object.entries(result.bias.byJudge).map(([j, b]) => {
       const flagged = b.firstSlot.lo > 0.5 || b.firstSlot.hi < 0.5;
       return {
@@ -286,7 +294,9 @@ export function renderReport(result, { truth = null } = {}) {
         tagColor: flagged ? 'var(--critical)' : 'var(--ink-3)',
       };
     });
-    const biasSvg = intervalChart(biasItems, { domain: [0.3, 0.9], refLine: 0.5, fmt: f2, width: 860 });
+    const bLo = Math.min(0.45, ...biasItems.map((b) => b.lo)) - 0.05;
+    const bHi = Math.max(0.55, ...biasItems.map((b) => b.hi)) + 0.05;
+    const biasSvg = intervalChart(biasItems, { domain: [Math.max(0, bLo), Math.min(1, bHi)], refLine: 0.5, fmt: f2, width: 860 });
 
     const looRows = result.judges.leaveOneOut.map((l) =>
       `<tr><td>${esc(l.judge)}</td><td class="num">${f3(result.judges.alpha)}</td><td class="num">${f3(l.alphaWithout)}</td>
@@ -305,12 +315,16 @@ export function renderReport(result, { truth = null } = {}) {
       <p class="q">Can the graders be trusted?</p>
       <h2>Judge panel diagnostics</h2>
       <p class="note">Krippendorff's α across ${result.judges.units} rated units:
-        <b class="mono">${f3(alpha)}</b> — ${gate}. Every pairwise comparison was presented twice with
-        the candidate order swapped; a judge whose "first slot wins" rate departs from 0.5 is
-        position-biased, and its verdicts inflate whichever model luck placed first.</p>
-      <div class="card"><figure>${biasSvg}
-        <figcaption>Rate at which the first-presented answer won, per judge, with 95% Wilson intervals.
-        Dashed line = no positional preference.</figcaption></figure></div>
+        <b class="mono">${f3(alpha)}</b> — ${gate}.${hasSwaps ? ` Comparisons were presented in both
+        orders (${result.bias.overall.swappedPairs.toLocaleString()} swapped duplicates); a judge whose
+        "first slot wins" rate departs from 0.5 is position-biased, and its verdicts inflate whichever
+        model luck placed first.` : ''}</p>
+      ${hasSwaps ? `<div class="card"><figure>${biasSvg}
+        <figcaption>Rate at which the first-presented answer won, per judge, with ${LVL}% Wilson intervals.
+        Dashed line = no positional preference.</figcaption></figure></div>`
+      : `<p class="note"><b>Position bias not assessable:</b> the verdicts contain no order-swapped
+        duplicates, so positional preference cannot be separated from candidate quality. Present each
+        comparison in both orders to enable this diagnostic.</p>`}
       <details><summary>Leave-one-out reliability</summary><div class="scroll"><table>
         <thead><tr><th>Judge removed</th><th class="num">α (full panel)</th><th class="num">α without judge</th><th>Reading</th></tr></thead>
         <tbody>${looRows}</tbody></table></div></details>
@@ -323,7 +337,8 @@ export function renderReport(result, { truth = null } = {}) {
   // ---- Bradley–Terry ------------------------------------------------------
   let btSection = '';
   if (result.bradleyTerry) {
-    const bt = result.bradleyTerry.slice().sort((a, b) => b.logStrength - a.logStrength);
+    const btr = result.bradleyTerry;
+    const bt = btr.strengths.slice().sort((a, b) => b.logStrength - a.logStrength);
     const btSvg = intervalChart(
       bt.map((e) => ({
         label: nameOf[e.model] || e.model,
@@ -336,12 +351,29 @@ export function renderReport(result, { truth = null } = {}) {
     <section>
       <p class="q">Does head-to-head preference agree?</p>
       <h2>Bradley–Terry strengths from pairwise verdicts</h2>
-      <p class="note">Latent strength fitted from ${'judge verdicts'} by maximum likelihood (Hunter's MM),
-      log scale, field average = 0. The right-hand annotation is rank stability: the share of
-      bootstrap worlds in which the model keeps its modal rank. A ranking that survives resampling
-      is a finding; one that does not is noise arranged in descending order.</p>
+      <p class="note">Latent strength fitted by maximum likelihood (Hunter's MM), log scale,
+      field average = 0; intervals from a cluster bootstrap that keeps order-swapped duplicate
+      presentations together. Rank stability is the share of bootstrap worlds in which the model
+      keeps its modal rank — a ranking that survives resampling is a finding; one that does not is
+      noise arranged in descending order.
+      ${btr.excludedJudges.length
+        ? `<b>Verdicts from flagged judges are excluded from this fit</b>
+           (${btr.excludedJudges.map(esc).join(', ')} — ${btr.verdictsUsed.toLocaleString()} of
+           ${btr.verdictsTotal.toLocaleString()} verdicts used): a judge the diagnostics above caught
+           biasing outcomes does not get to drive the headline ranking.`
+        : ''}</p>
       <div class="card"><figure>${btSvg}
-        <figcaption>Log-strength with 95% bootstrap intervals over matches.</figcaption></figure></div>
+        <figcaption>Log-strength with ${LVL}% cluster-bootstrap intervals.</figcaption></figure></div>
+      ${btr.allVerdicts ? (() => {
+        const allSorted = btr.allVerdicts.slice().sort((a, b) => b.logStrength - a.logStrength);
+        const flips = allSorted.map((e) => e.model).join() !== bt.map((e) => e.model).join();
+        return `<p class="note" style="margin-top:.8rem"><b>Sensitivity:</b> refitting with the
+        flagged judges included ${flips ? '<b class="flag">changes the ranking order</b>' : 'keeps the same order'}
+        and shifts strengths by up to ${f2(Math.max(...allSorted.map((e) => {
+          const p = bt.find((x) => x.model === e.model);
+          return Math.abs(e.logStrength - p.logStrength);
+        })))} log units. Where the two fits disagree, trust neither.</p>`;
+      })() : ''}
     </section>`;
   }
 
@@ -399,12 +431,12 @@ export function renderReport(result, { truth = null } = {}) {
 
 <section>
   <p class="q">How do the models score?</p>
-  <h2>Mean task score with 95% BCa bootstrap intervals</h2>
+  <h2>Mean task score with ${LVL}% BCa bootstrap intervals</h2>
   <p class="note">Wherever two intervals overlap heavily, the paired test below — not the picture —
   decides whether the gap is real. Intervals are per-model; comparisons use per-task pairing,
   which is far more sensitive.</p>
   <div class="card"><figure>${rankingSvg}
-    <figcaption>Score scale 0–100. Dot = mean over ${pw.tasks} tasks; whiskers = 95% BCa interval.</figcaption>
+    <figcaption>Score scale 0–100. Dot = mean over ${pw.tasks} tasks; whiskers = ${LVL}% BCa interval.</figcaption>
   </figure></div>
   ${rankingTable}
 </section>
@@ -417,7 +449,7 @@ export function renderReport(result, { truth = null } = {}) {
   step-down correction controls the chance of even one false "X beats Y" across all
   ${result.pairs.length} comparisons at ${Math.round((1 - result.config.level) * 100)}%.</p>
   <div class="scroll"><table>
-    <thead><tr><th>Comparison</th><th class="num">Δ mean</th><th class="num">Cliff's δ</th><th class="num">p (raw)</th><th class="num">p (Holm)</th><th>Verdict</th></tr></thead>
+    <thead><tr><th>Comparison</th><th class="num">Δ mean</th><th class="num">Paired dominance</th><th class="num">p (raw)</th><th class="num">p (Holm)</th><th>Verdict</th></tr></thead>
     <tbody>${pairRows}</tbody>
   </table></div>
 </section>
@@ -427,19 +459,23 @@ export function renderReport(result, { truth = null } = {}) {
   <h2>Resolution</h2>
   <p class="note">No leaderboard reports this, and it changes how every score should be read:
   differences smaller than the detection limit are indistinguishable from noise <em>by design</em>,
-  no matter how confidently a table orders them.</p>
+  no matter how confidently a table orders them. Figures are quoted at the family-corrected
+  threshold this report actually decides with (α/${pw.comparisons}), and are themselves estimated
+  from this dataset's ${pw.tasks} tasks — treat them as a scale, not a constant.</p>
   ${powerTiles}
 </section>
 
 <section>
   <p class="q">What does quality cost?</p>
   <h2>Cost–quality frontier with dominance probabilities</h2>
-  <p class="note">A model is on the frontier when nothing is simultaneously better and cheaper.
-  Under uncertainty that is a probability, not a fact: across 1,000 bootstrap resamples of the
-  task set, P(frontier) is how often each model survives undominated. Filled = frontier-likely;
+  <p class="note">A model is dominated when another is at least as good and at least as cheap,
+  and strictly better on one of the two — ties do not rescue it. Under uncertainty, frontier
+  membership is a probability, not a fact: across 1,000 bootstrap resamples of the task set,
+  P(frontier) is how often each model survives undominated. Filled = frontier-likely;
   outlined = usually dominated.</p>
-  <div class="card"><figure>${result.pareto ? paretoChart(models, result.pareto) : '<p>No cost data.</p>'}
-    <figcaption>Vertical whiskers: 95% score intervals. Dashed staircase: empirical frontier of point estimates.</figcaption>
+  <div class="card"><figure>${result.pareto ? paretoChart(models.filter((m) => m.costPerTask != null), result.pareto) : '<p>No cost data.</p>'}
+    <figcaption>Vertical whiskers: ${LVL}% score intervals. Dashed staircase: empirical frontier
+    of point estimates.${models.some((m) => m.costPerTask == null) ? ' Models without cost data are excluded: ' + esc(models.filter((m) => m.costPerTask == null).map((m) => m.name).join(', ')) + '.' : ''}</figcaption>
   </figure></div>
 </section>
 

@@ -17,7 +17,15 @@ check('phi(1.959964)=0.975', near(phi(1.959964), 0.975, 1e-5), String(phi(1.9599
 check('phi(-1)=0.158655', near(phi(-1), 0.1586553, 1e-5));
 check('phiInv(0.975)=1.959964', near(phiInv(0.975), 1.959964, 1e-5), String(phiInv(0.975)));
 check('phiInv(0.5)=0', near(phiInv(0.5), 0, 1e-8));
-check('phiInv round-trips phi', [-3, -1.2, 0, 0.7, 2.5].every((x) => near(phiInv(phi(x)), x, 1e-5)));
+// Round-trip tolerance is bounded by phi's own A&S error (~7e-8 abs)
+// amplified by 1/pdf(x) — about 3e-5 at |x|=3. Exact inversion of OUR phi
+// would be self-consistency, not correctness; correctness is the known-value
+// checks above.
+check('phiInv round-trips phi within phi accuracy',
+  [-3, -1.2, 0, 0.7, 2.5].every((x) => near(phiInv(phi(x)), x, 5e-5)));
+// Tail accuracy vs true quantiles (R qnorm reference values).
+check('phiInv(0.999)=3.090232', near(phiInv(0.999), 3.090232, 1e-5), String(phiInv(0.999)));
+check('phiInv(1e-4)=-3.719016', near(phiInv(1e-4), -3.719016, 1e-5), String(phiInv(1e-4)));
 let threw = false; try { phiInv(0); } catch { threw = true; }
 check('phiInv rejects 0', threw);
 
@@ -105,6 +113,25 @@ check('cliffs delta sign', cliffsDelta([1, 2], [5, 6]) === -1);
     const n = requiredTasks(s, mdd);
     return n >= diffs.length - 1 && n <= diffs.length + 1;
   })(), String(requiredTasks(s, mdd)));
+}
+
+// --- discreteness floor of the sign-flip test ------------------------------
+// A two-sided sign-flip test on n pairs cannot produce p < 2/2^n, so at
+// alpha=0.05 no difference of ANY size is detectable below 6 pairs. The
+// formulas must refuse rather than approximate.
+{
+  for (const n of [2, 3, 4, 5]) {
+    check(`MDD refuses n=${n} at alpha=0.05`,
+      minimumDetectableDifference(10, n) === Infinity,
+      String(minimumDetectableDifference(10, n)));
+  }
+  check('MDD finite at n=6', Number.isFinite(minimumDetectableDifference(10, 6)));
+  check('requiredTasks floored at the discreteness limit',
+    requiredTasks(6, 10) >= 6 && requiredTasks(4, 5) >= 6,
+    `${requiredTasks(6, 10)}, ${requiredTasks(4, 5)}`);
+  // n=1 samples get a degenerate point interval, never NaN.
+  const one = bcaInterval([5], mean, { B: 100, seed: 1 });
+  check('bca n=1 degenerate, not NaN', one.lo === 5 && one.hi === 5, JSON.stringify(one));
 }
 
 console.log(failures === 0 ? 'rigor/stats: all checks passed' : `rigor/stats: ${failures} FAILURES`);

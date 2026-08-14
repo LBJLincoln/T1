@@ -42,27 +42,49 @@ export function krippendorffAlpha(units, { metric = 'interval' } = {}) {
     ? (c, k) => (c === k ? 0 : 1)
     : (c, k) => (c - k) * (c - k);
 
-  // Coincidence counts keyed by value pair.
-  const values = new Map(); // value -> marginal n_c
-  const pairs = new Map();  // "c|k" (c<=k) -> o_ck
+  if (metric !== 'nominal') {
+    // The interval metric is only defined on numbers; anything else must fail
+    // loudly rather than be silently coerced.
+    for (const unit of units) for (const v of unit) {
+      if (v !== null && v !== undefined && typeof v !== 'number') {
+        throw new TypeError('krippendorffAlpha: interval metric requires numeric values');
+      }
+    }
+  }
+
+  // Coincidence counts keyed by value IDENTITY (string form), holding the
+  // original values for delta2 — numeric coercion previously collapsed all
+  // string labels into one NaN bucket counted entirely as disagreement.
+  const values = new Map(); // key -> {v, n_c}
+  const pairs = new Map();  // "kc\u0000kk" (kc <= kk as strings) -> {c, k, o}
   let n = 0;
   let usableUnits = 0;
 
   for (const unit of units) {
-    const vals = unit.filter((v) => v !== null && v !== undefined && !Number.isNaN(v));
+    const vals = unit.filter((v) => v !== null && v !== undefined &&
+      !(typeof v === 'number' && Number.isNaN(v)));
     const m = vals.length;
     if (m < 2) continue;
     usableUnits++;
     const w = 1 / (m - 1);
     for (let i = 0; i < m; i++) {
-      values.set(vals[i], (values.get(vals[i]) || 0) + 1);
+      const ki = String(vals[i]);
+      const rec = values.get(ki) || { v: vals[i], count: 0 };
+      rec.count += 1;
+      values.set(ki, rec);
       n += 1;
       for (let j = 0; j < m; j++) {
         if (i === j) continue;
-        const c = Math.min(vals[i], vals[j]);
-        const k = Math.max(vals[i], vals[j]);
-        const key = c + '|' + k;
-        pairs.set(key, (pairs.get(key) || 0) + w / 2); // each unordered pair counted once
+        const kj = String(vals[j]);
+        const [ka, kb] = ki <= kj ? [ki, kj] : [kj, ki];
+        const key = ka + '\u0000' + kb;
+        const p = pairs.get(key) || {
+          c: ki <= kj ? vals[i] : vals[j],
+          k: ki <= kj ? vals[j] : vals[i],
+          o: 0,
+        };
+        p.o += w / 2; // each unordered pair counted once
+        pairs.set(key, p);
       }
     }
   }
@@ -70,16 +92,15 @@ export function krippendorffAlpha(units, { metric = 'interval' } = {}) {
   if (usableUnits === 0 || n < 2) return { alpha: NaN, units: usableUnits, n };
 
   let Do = 0;
-  for (const [key, o] of pairs) {
-    const [c, k] = key.split('|').map(Number);
-    if (c !== k) Do += o * delta2(c, k);
+  for (const p of pairs.values()) {
+    if (String(p.c) !== String(p.k)) Do += p.o * delta2(p.c, p.k);
   }
 
   let De = 0;
-  const vals = [...values.entries()];
+  const vals = [...values.values()];
   for (let i = 0; i < vals.length; i++) {
     for (let j = i + 1; j < vals.length; j++) {
-      De += vals[i][1] * vals[j][1] * delta2(vals[i][0], vals[j][0]);
+      De += vals[i].count * vals[j].count * delta2(vals[i].v, vals[j].v);
     }
   }
   De /= (n - 1);
@@ -130,7 +151,7 @@ export function cohensKappa(a, b) {
  * `records`: [{winnerSlot: 1|2|0 (0 = tie), pairId, presentation: 1|2}]
  * where presentation distinguishes the two orderings of the same pair.
  */
-export function positionBias(records) {
+export function positionBias(records, { level = 0.95 } = {}) {
   const byPair = new Map();
   for (const r of records) {
     if (!byPair.has(r.pairId)) byPair.set(r.pairId, {});
@@ -151,7 +172,9 @@ export function positionBias(records) {
 
   let decided = 0, firstWins = 0;
   for (const r of records) {
-    if (r.winnerSlot === 0) continue;
+    // Only explicit slot verdicts count: data without the swap design
+    // (winnerSlot missing) previously inflated "decided" and fabricated bias.
+    if (r.winnerSlot !== 1 && r.winnerSlot !== 2) continue;
     decided++;
     if (r.winnerSlot === 1) firstWins++;
   }
@@ -159,8 +182,8 @@ export function positionBias(records) {
   return {
     swappedPairs: dupes,
     flipRate: dupes ? flips / dupes : NaN,
-    flipCI: wilsonInterval(flips, Math.max(dupes, 1)),
-    firstSlot: wilsonInterval(firstWins, Math.max(decided, 1)),
+    flipCI: wilsonInterval(flips, Math.max(dupes, 1), { level }),
+    firstSlot: wilsonInterval(firstWins, Math.max(decided, 1), { level }),
     decided,
   };
 }
@@ -170,9 +193,10 @@ export function positionBias(records) {
  * rest of the panel gives it?
  *
  * For judge J and candidate model M (same family as J): compare M's win rate
- * in J's verdicts against M's win rate in all other judges' verdicts on the
- * same pairs. Report the gap with intervals on both sides; a gap whose
- * intervals clear zero is flagged.
+ * in J's verdicts against M's win rate in the rest of the panel's verdicts on
+ * the same matchups (task + model pair) — restricting the baseline is what
+ * separates self-preference from opponent-mix effects. A gap whose intervals
+ * clear zero is flagged.
  *
  * `verdicts`: [{judge, modelA, modelB, winner: modelId|null}]
  * `judgeFamily`: {judgeId: familyName}
@@ -180,13 +204,23 @@ export function positionBias(records) {
  * in families; conflating the two silently finds no matches (a bug this
  * signature exists to prevent).
  */
-export function selfPreference(verdicts, judgeFamily, modelFamily = {}) {
+export function selfPreference(verdicts, judgeFamily, modelFamily = {}, { level = 0.95 } = {}) {
   const famOf = (modelId) => modelFamily[modelId] ?? modelId;
+  // Matchup key: task plus the unordered model pair. The panel baseline is
+  // restricted to matchups the judge itself judged — otherwise a judge that
+  // only saw its family against weak opponents would be flagged for honestly
+  // reporting wins the rest of the panel never got to see.
+  const matchKey = (v) => {
+    const [a, b] = [v.modelA, v.modelB].sort();
+    return (v.task ?? '') + '\u0000' + a + '\u0000' + b;
+  };
   const out = [];
   const judges = [...new Set(verdicts.map((v) => v.judge))];
   for (const judge of judges) {
     const family = judgeFamily[judge];
     if (!family) continue;
+    const ownMatches = new Set(
+      verdicts.filter((v) => v.judge === judge).map(matchKey));
     let ownWins = 0, ownDecided = 0, otherWins = 0, otherDecided = 0;
     for (const v of verdicts) {
       const involvesFamily = famOf(v.modelA) === family || famOf(v.modelB) === family;
@@ -194,14 +228,14 @@ export function selfPreference(verdicts, judgeFamily, modelFamily = {}) {
       if (v.judge === judge) {
         ownDecided++;
         if (famOf(v.winner) === family) ownWins++;
-      } else {
+      } else if (ownMatches.has(matchKey(v))) {
         otherDecided++;
         if (famOf(v.winner) === family) otherWins++;
       }
     }
     if (ownDecided === 0 || otherDecided === 0) continue;
-    const own = wilsonInterval(ownWins, ownDecided);
-    const others = wilsonInterval(otherWins, otherDecided);
+    const own = wilsonInterval(ownWins, ownDecided, { level });
+    const others = wilsonInterval(otherWins, otherDecided, { level });
     out.push({
       judge,
       family,

@@ -59,9 +59,16 @@ check('alpha in plausible range for noisy panel', result.judges.alpha > 0.5 && r
   String(result.judges.alpha));
 
 // --- Bradley-Terry agrees with score ranking on separated models -------------
-const bt = result.bradleyTerry.slice().sort((a, b) => b.logStrength - a.logStrength).map((e) => e.model);
+const bt = result.bradleyTerry.strengths.slice().sort((a, b) => b.logStrength - a.logStrength).map((e) => e.model);
 check('BT top matches score top', bt[0] === 'atlas-large', bt.join(','));
 check('BT bottom matches score bottom', bt[4] === 'ember-lite', bt.join(','));
+// The flagged judges must be excluded from the primary fit — feeding a
+// detected bias back into the headline ranking was the critic's critical.
+check('flagged judges excluded from primary BT fit',
+  result.bradleyTerry.excludedJudges.includes(truth.selfPreferringJudge) &&
+  result.bradleyTerry.excludedJudges.includes(truth.biasedJudge),
+  JSON.stringify(result.bradleyTerry.excludedJudges));
+check('sensitivity fit present', result.bradleyTerry.allVerdicts !== null);
 
 // --- Pareto ------------------------------------------------------------------
 const par = Object.fromEntries(result.pareto.map((p) => [p.id, p.frontierProbability]));

@@ -78,10 +78,10 @@ export function phiInv(p) {
     x = -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
          ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
   }
-  // One Halley refinement step brings the approximation to near machine precision.
-  const e = phi(x) - p;
-  const u = e * Math.sqrt(2 * Math.PI) * Math.exp(x * x / 2);
-  return x - u / (1 + x * u / 2);
+  // No refinement against phi(): our phi is the A&S approximation (abs err
+  // ~7e-8), and Newton/Halley steps toward ITS root would degrade Acklam by
+  // orders of magnitude in the tails. Raw Acklam already meets the bound above.
+  return x;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +126,10 @@ export function bcaInterval(xs, stat, { level = 0.95, B = 2000, seed = 1 } = {})
   const n = xs.length;
   if (n === 0) throw new RangeError('bcaInterval: empty sample');
   const est = stat(xs);
+  // A single observation has no resampling variability to estimate: the only
+  // honest degenerate interval is the point itself (n=1 previously produced
+  // NaN bounds via an empty jackknife sample).
+  if (n === 1) return { est, lo: est, hi: est, reps: 0 };
   const rand = rng(seed);
 
   const reps = new Array(B);
@@ -277,7 +281,12 @@ export function wilsonInterval(successes, n, { level = 0.95 } = {}) {
  * Validated by simulation in the test suite.
  */
 export function minimumDetectableDifference(sdDiff, n, { alpha = 0.05, power = 0.8 } = {}) {
-  if (n < 2) return Infinity;
+  // Discreteness floor: a two-sided sign-flip test on n pairs cannot produce
+  // p below 2/2^n, so when that floor exceeds alpha no difference of ANY size
+  // is detectable — the normal approximation would happily return a finite
+  // number here, which is exactly the false confidence this library exists
+  // to prevent.
+  if (n < 2 || 2 / Math.pow(2, n) > alpha) return Infinity;
   return (phiInv(1 - alpha / 2) + phiInv(power)) * sdDiff / Math.sqrt(n);
 }
 
@@ -285,7 +294,10 @@ export function minimumDetectableDifference(sdDiff, n, { alpha = 0.05, power = 0
 export function requiredTasks(sdDiff, d, { alpha = 0.05, power = 0.8 } = {}) {
   if (d <= 0) return Infinity;
   const z = phiInv(1 - alpha / 2) + phiInv(power);
-  return Math.ceil((z * sdDiff / d) ** 2);
+  // Never report fewer tasks than the sign-flip discreteness floor allows:
+  // with n pairs the test cannot reject at alpha unless 2/2^n <= alpha.
+  const floor = Math.ceil(Math.log2(2 / alpha));
+  return Math.max(floor, Math.ceil((z * sdDiff / d) ** 2));
 }
 
 /**
