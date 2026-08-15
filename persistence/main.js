@@ -43,6 +43,7 @@ const smooth = (t) => t * t * (3 - 2 * t);
 const ease = (cur, target, k, dt) => cur + (target - cur) * (1 - Math.exp(-k * dt));
 
 const GROUND_Y = -1.05; // the desert floor, in world units
+const WATER_Y = -0.5;   // the bay's surface: higher than the floor, so its mirror fits the frame
 
 // ---------------------------------------------------------------------------
 // Scenes — five plates of the dream
@@ -52,38 +53,52 @@ const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
 
 // pForce: radial cursor force (+repel −attract). pHeat: cursor-melt strength.
 // melt: ambient sag/drip of the body itself. yaw: composed camera angle.
+// water: the plain becomes a still bay that mirrors the sky — and, on the
+// swans plate, mirrors the particles into a different shape entirely.
 const SCENES = [
   { name: 'desert', root: 92.5, yaw: 0.3, shift: 0.35, shiftY: 0,
     spring: 2.2, noiseAmp: 0.22, noiseScale: 1.7, flow: 0.2, damp: 2.8,
     pForce: 1.6, pHeat: 0, pRad: 3.0, melt: 0.03, size: 2.2, alpha: 0.6, halo: 1.0,
-    breathA: 0.02, breathR: 0.4,
+    breathA: 0.02, breathR: 0.4, water: 0,
     colA: hex('#ffd9a0'), colB: hex('#7cc7e8'),
     skyTop: hex('#16304f'), skyHz: hex('#e3aa5e'), plainA: hex('#a8743e'), plainB: hex('#472817'), sunI: 1.0, sunX: 0.74 },
-  { name: 'watch', root: 82.41, yaw: 0.05, shift: 0.42, shiftY: -0.08,
+  { name: 'watch', root: 82.41, yaw: 0.22, shift: 0.42, shiftY: -0.08,
     spring: 5.0, noiseAmp: 0.08, noiseScale: 2.4, flow: 0.35, damp: 4.2,
-    pForce: 0.5, pHeat: 5.5, pRad: 5.0, melt: 0.34, size: 2.1, alpha: 0.7, halo: 0.8,
-    breathA: 0.015, breathR: 0.5,
+    pForce: 0.5, pHeat: 5.5, pRad: 5.0, melt: 0.3, size: 2.1, alpha: 0.7, halo: 0.8,
+    breathA: 0.015, breathR: 0.5, water: 0,
     colA: hex('#ffcf6e'), colB: hex('#ff9e58'),
     skyTop: hex('#1b2f4a'), skyHz: hex('#e8b96b'), plainA: hex('#b07a42'), plainB: hex('#4a2a18'), sunI: 1.0, sunX: 0.2 },
   { name: 'elephants', root: 73.42, yaw: 0.42, shift: 0.3, shiftY: 0,
     spring: 4.6, noiseAmp: 0.09, noiseScale: 2.8, flow: 0.5, damp: 4.2,
     pForce: 2.6, pHeat: 0, pRad: 4.5, melt: 0.05, size: 2.0, alpha: 0.66, halo: 0.9,
-    breathA: 0.02, breathR: 0.35,
+    breathA: 0.02, breathR: 0.35, water: 0,
     colA: hex('#d98a5b'), colB: hex('#e8b4a0'),
     skyTop: hex('#142a45'), skyHz: hex('#d89a52'), plainA: hex('#9c6a3a'), plainB: hex('#3f2413'), sunI: 0.9, sunX: 0.76 },
+  { name: 'swans', root: 98.0, yaw: 0.14, shift: 0.4, shiftY: 0,
+    spring: 4.4, noiseAmp: 0.05, noiseScale: 2.2, flow: 0.3, damp: 4.4,
+    pForce: 0.9, pHeat: 0, pRad: 4.0, melt: 0.012, size: 2.0, alpha: 0.58, halo: 0.6,
+    breathA: 0.015, breathR: 0.3, water: 1,
+    colA: hex('#f6ecd8'), colB: hex('#ffc98a'),
+    skyTop: hex('#152b48'), skyHz: hex('#dba45f'), plainA: hex('#54513f'), plainB: hex('#1d1c14'), sunI: 0.85, sunX: 0.32 },
   { name: 'double', root: 110.0, yaw: 0.0, shift: 0.5, shiftY: -0.16,
     spring: 11.0, noiseAmp: 0.03, noiseScale: 2.4, flow: 0.35, damp: 6.0,
     pForce: 0.3, pHeat: 0, pRad: 9.0, melt: 0.015, size: 1.9, alpha: 0.6, halo: 0.3,
-    breathA: 0.012, breathR: 0.5,
+    breathA: 0.012, breathR: 0.5, water: 0,
     colA: hex('#f5ead6'), colB: hex('#8fc3e8'),
     skyTop: hex('#10233c'), skyHz: hex('#c9a06a'), plainA: hex('#8a5c34'), plainB: hex('#37200f'), sunI: 0.55, sunX: 0.22 },
   { name: 'galatea', root: 87.31, yaw: 0.25, shift: 0.35, shiftY: -0.14,
     spring: 3.2, noiseAmp: 0.11, noiseScale: 1.5, flow: 0.4, damp: 3.0,
     pForce: -1.4, pHeat: 0, pRad: 1.6, melt: 0.03, size: 2.3, alpha: 0.62, halo: 1.0,
-    breathA: 0.04, breathR: 0.45,
+    breathA: 0.04, breathR: 0.45, water: 0,
     colA: hex('#ffb8c4'), colB: hex('#f2e2c4'),
     skyTop: hex('#1a2c4e'), skyHz: hex('#d9a570'), plainA: hex('#9c6a4a'), plainB: hex('#40241a'), sunI: 0.75, sunX: 0.7 },
 ];
+
+// Which scene index holds the paranoiac double image, and where the extra
+// target plates live in makeTargets' numbering.
+const DOUBLE_I = 4;
+const CLOCK_I = 6;   // face C of the double image
+const REFL_I = 7;    // what the swans' reflection insists on being
 
 function blendScenes(a, b, t) {
   const out = {};
@@ -299,14 +314,112 @@ function makeTargets(scene, n) {
       }
     }
   } else if (scene === 1) {
-    // The soft watch: a full pocket-watch face; the melting is done live by
-    // the simulation shader, so the shape itself is drawn crisp.
-    sampleCanvas(drawClock, n, pts, rand, { scale: 1.55, cx: 0, cy: 0.18, zJitter: 0.035 });
+    // The soft watch, draped over its branch: the flat face is bent over a
+    // cylinder (a page curl) so the upper part folds back into a shelf while
+    // the face hangs toward you. The melting is done live by the simulation
+    // shader on top of the drape.
+    const branchShare = Math.floor(n * 0.08);
+    sampleCanvas(drawClock, n - branchShare, pts, rand, { scale: 1.5, cx: 0, cy: 0.16, zJitter: 0.03 });
+    const YB = 0.62, RB = 0.1; // fold height and curl radius: only the crown folds
+    for (let i = 0; i < pts.length; i += 3) {
+      const s = pts[i + 1] - YB;
+      if (s <= 0) continue;
+      const th = s / RB;
+      if (th < Math.PI / 2) {
+        pts[i + 1] = YB + RB * Math.sin(th);
+        pts[i + 2] += -RB + RB * Math.cos(th);
+      } else {
+        pts[i + 1] = YB + RB;
+        pts[i + 2] += -RB - (s - (Math.PI / 2) * RB);
+      }
+    }
+    // The bare branch it hangs from, running in from the left.
+    for (let i = 0; i < branchShare; i++) {
+      const t = rand();
+      const x = -1.35 + t * 1.9;
+      const droop = Math.sin(t * 2.4) * 0.035 + t * 0.05;
+      const r = 0.018 * (1 - t * 0.5);
+      if (rand() < 0.12 && t > 0.55) {
+        const ft = rand();
+        pts.push(x + ft * 0.25, YB + RB + 0.02 + droop + ft * 0.18 + gauss(rand) * r, -RB - 0.04 - ft * 0.08);
+      } else {
+        pts.push(x, YB + RB + 0.02 + droop + gauss(rand) * r, -RB - 0.02 + gauss(rand) * r);
+      }
+    }
   } else if (scene === 2) {
     const each = Math.floor(n / 2);
     pushElephant(pts, rand, { ox: 0.55, oz: -0.1, scale: 1.0, mirror: 1, share: each });
     pushElephant(pts, rand, { ox: -0.9, oz: -0.55, scale: 0.82, mirror: -1, share: n - each });
   } else if (scene === 3) {
+    // Swans on a still bay. Their reflection is drawn by the renderer from
+    // a different target entirely (scene REFL_I) — the water lies.
+    const swan = (ox, oz, sc, mirror, share) => {
+      const W = WATER_Y; // waterline
+      for (let i = 0; i < share; i++) {
+        const u = rand();
+        if (u < 0.42) {
+          // Body: floating ellipsoid, only the part above water.
+          const th = rand() * TAU, ph = Math.acos(rand() * 2 - 1);
+          const r = Math.cbrt(rand());
+          const y = 0.13 + Math.cos(ph) * 0.15 * r;
+          if (y < 0.015) { i--; continue; }
+          pts.push(
+            ox + mirror * Math.sin(ph) * Math.cos(th) * 0.36 * r * sc,
+            W + y * sc,
+            oz + Math.sin(ph) * Math.sin(th) * 0.2 * r * sc
+          );
+        } else if (u < 0.78) {
+          // Neck: an S-curve cubic, tapering.
+          const t = rand();
+          const b = (a, b2, c, d) =>
+            (1 - t) ** 3 * a + 3 * (1 - t) ** 2 * t * b2 + 3 * (1 - t) * t * t * c + t ** 3 * d;
+          const bx = b(0.26, 0.58, 0.26, 0.46), by = b(0.2, 0.3, 0.66, 0.8);
+          const taper = 0.034 * (1 - t * 0.55);
+          pts.push(
+            ox + mirror * bx * sc + gauss(rand) * taper,
+            W + by * sc + gauss(rand) * taper,
+            oz + gauss(rand) * taper
+          );
+        } else if (u < 0.92) {
+          // Head and bill.
+          const t = rand();
+          if (t < 0.6) {
+            const th = rand() * TAU, ph = Math.acos(rand() * 2 - 1);
+            pts.push(
+              ox + mirror * (0.47 + Math.sin(ph) * Math.cos(th) * 0.055) * sc,
+              W + (0.81 + Math.cos(ph) * 0.045) * sc,
+              oz + Math.sin(ph) * Math.sin(th) * 0.045 * sc
+            );
+          } else {
+            const f = rand();
+            pts.push(
+              ox + mirror * (0.51 + f * 0.13) * sc + gauss(rand) * 0.008,
+              W + (0.795 - f * 0.03) * sc + gauss(rand) * 0.008,
+              oz + gauss(rand) * 0.008
+            );
+          }
+        } else {
+          // Folded wing: an arc feathered over the back.
+          const a = rand() * Math.PI;
+          pts.push(
+            ox + mirror * (-0.06 - Math.cos(a) * 0.26) * sc + gauss(rand) * 0.02,
+            W + (0.2 + Math.sin(a) * 0.16) * sc + gauss(rand) * 0.02,
+            oz + gauss(rand) * 0.05
+          );
+        }
+      }
+    };
+    const sparkle = Math.floor(n * 0.18);
+    const perSwan = Math.floor((n - sparkle) / 2);
+    swan(-0.62, -0.1, 0.62, 1, perSwan);
+    swan(0.55, -0.35, 0.5, -1, n - sparkle - perSwan);
+    // Water sparkle: grains riding the surface.
+    for (let i = 0; i < sparkle; i++) {
+      const x = (rand() * 2 - 1) * 2.2;
+      const z = (rand() * 2 - 1) * 1.4 - 0.1;
+      pts.push(x, WATER_Y + 0.008 + rand() * 0.012, z);
+    }
+  } else if (scene === DOUBLE_I) {
     // Double image, face A: the word. (Face C, the clock, is its own texture.)
     // Stroked, not filled: an outline reads as letterforms in additive light,
     // where a filled glyph is just a bright blot. Two stroke weights give the
@@ -319,7 +432,7 @@ function makeTargets(scene, n) {
       g.lineWidth = w * 0.004;
       g.strokeText('TIME', w / 2, h / 2);
     }, n, pts, rand, { width: 1400, height: 560, scale: 2.2, cx: 0, cy: -0.02, zJitter: 0.015 });
-  } else if (scene === 4) {
+  } else if (scene === 5) {
     // Galatea: a dome of small spheres, concentric rings, held apart.
     const rings = [];
     for (let ring = 0; ring < 7; ring++) {
@@ -357,9 +470,67 @@ function makeTargets(scene, n) {
         c[2] + Math.sin(ph) * Math.sin(th) * r
       );
     }
-  } else if (scene === 5) {
+  } else if (scene === CLOCK_I) {
     // Face C of the double image: a crisp clock in the same footprint as TIME.
     sampleCanvas(drawClock, n, pts, rand, { scale: 1.4, cx: 0, cy: -0.02, zJitter: 0.02 });
+  } else if (scene === REFL_I) {
+    // The swans' reflection: compact elephants drawn directly in mirror space,
+    // trunk rising to answer the swan's neck, body shallow enough to read
+    // through the water's fade. Depth is measured down from the waterline.
+    const W = WATER_Y;
+    const ele = (ox, oz, m, sc, share) => {
+      const P = (x, d, z, j = 0.02) => pts.push(
+        ox + m * x * sc + gauss(rand) * j,
+        W - d * sc,
+        oz + z * sc + gauss(rand) * j
+      );
+      for (let i = 0; i < share; i++) {
+        const u = rand();
+        if (u < 0.34) {
+          // Body: a great round back just under the surface.
+          const th = rand() * TAU, ph = Math.acos(rand() * 2 - 1);
+          const r = Math.cbrt(rand());
+          P(-0.14 + Math.sin(ph) * Math.cos(th) * 0.5 * r,
+            0.74 + Math.cos(ph) * 0.33 * r,
+            Math.sin(ph) * Math.sin(th) * 0.3 * r, 0.012);
+        } else if (u < 0.5) {
+          // Head, domed, at the front.
+          const th = rand() * TAU, ph = Math.acos(rand() * 2 - 1);
+          P(0.36 + Math.sin(ph) * Math.cos(th) * 0.17,
+            0.56 + Math.cos(ph) * 0.16,
+            Math.sin(ph) * Math.sin(th) * 0.14, 0.01);
+        } else if (u < 0.66) {
+          // Trunk: rises from the head toward the surface, where the swan's
+          // neck comes down to meet it.
+          const t = rand();
+          const b = (a, b2, c, d2) =>
+            (1 - t) ** 3 * a + 3 * (1 - t) ** 2 * t * b2 + 3 * (1 - t) * t * t * c + t ** 3 * d2;
+          const bx = b(0.44, 0.64, 0.4, 0.52), bd = b(0.5, 0.3, 0.16, 0.04);
+          const taper = 0.035 * (1 - t * 0.5);
+          P(bx, bd, 0, taper);
+        } else if (u < 0.78) {
+          // Ears: broad flaps either side of the head.
+          const side = rand() < 0.5 ? 1 : -1;
+          const a = rand() * TAU, r = Math.sqrt(rand()) * 0.2;
+          P(0.24 + Math.cos(a) * r * 0.5,
+            0.54 + Math.sin(a) * r,
+            side * (0.16 + r * 0.3), 0.012);
+        } else if (u < 0.97) {
+          // Legs: four stout columns going down into the dark.
+          const leg = (rand() * 4) | 0;
+          const sx = leg % 2 ? 1 : -1, sz = leg < 2 ? 1 : -1;
+          const t = rand();
+          P(-0.14 + sx * 0.3, 1.0 + t * 0.45, sz * 0.18, 0.035);
+        } else {
+          // Tail.
+          const t = rand();
+          P(-0.62 - t * 0.06, 0.68 + t * 0.25, 0, 0.012);
+        }
+      }
+    };
+    const each = Math.floor(n / 2);
+    ele(-0.62, -0.1, 1, 0.62, each);
+    ele(0.55, -0.35, -1, 0.5, n - each);
   }
 
   const out = new Float32Array(n * 4);
@@ -532,13 +703,15 @@ void main(){
 
 const POINTS_VS = /* glsl */`#version 300 es
 precision highp float;
-uniform sampler2D uPos, uVel;
+uniform sampler2D uPos, uVel, uReflTarget;
 uniform mat4 uView, uProj;
 uniform int uSimSize;
 uniform float uPointSize, uDpr;
-uniform float uPass;        // 0 = shadow, 1 = body
+uniform float uPass;        // 0 = shadow, 1 = body, 2 = reflection
 uniform float uGroundY;
 uniform vec2 uSunSlant;     // shadow shear per unit height
+uniform float uReflMorph, uTime, uWaterY;
+uniform vec3 uShift;
 out float vHue;
 out float vSpeed;
 out float vFade;
@@ -548,9 +721,23 @@ void main(){
   vec4 V = texelFetch(uVel, uv, 0);
   vec3 world = P.xyz;
   float h = max(0.0, world.y - uGroundY);
+  float fade;
   if (uPass < 0.5) {
     // The long shadow: flatten onto the plain, sheared away from the low sun.
     world = vec3(world.x + h * uSunSlant.x, uGroundY + 0.004, world.z + h * uSunSlant.y);
+    fade = exp(-h * 0.9);
+  } else if (uPass > 1.5) {
+    // The reflection that lies: the honest mirror of each grain, blended
+    // toward a second shape that was never above the water at all.
+    vec3 mir = vec3(world.x, 2.0 * uWaterY - world.y, world.z);
+    vec3 other = texelFetch(uReflTarget, uv, 0).xyz + uShift;
+    world = mix(mir, other, uReflMorph);
+    // The surface breathes; the lie shimmers.
+    float depth = max(0.0, uWaterY - world.y);
+    world.x += sin(world.y * 9.0 + uTime * 1.2 + world.x * 3.0) * 0.02 * min(1.0, depth * 1.6 + 0.15);
+    fade = exp(-depth * 0.45);
+  } else {
+    fade = 1.0;
   }
   vec4 viewPos = uView * vec4(world, 1.0);
   gl_Position = uProj * viewPos;
@@ -560,7 +747,7 @@ void main(){
   vHue = fract(P.w + V.w * 0.37);
   vSpeed = length(V.xyz);
   // Shadows fade as their caster rises; bodies fade with camera distance.
-  vFade = uPass < 0.5 ? exp(-h * 0.9) : smoothstep(8.0, 2.4, dist);
+  vFade = fade * (uPass < 0.5 ? 1.0 : smoothstep(8.0, 2.4, dist));
 }`;
 
 const POINTS_FS = /* glsl */`#version 300 es
@@ -582,6 +769,7 @@ void main(){
   }
   vec3 col = mix(uColA, uColB, clamp(vHue + vSpeed * 0.35, 0.0, 1.0));
   col += vec3(0.55) * pow(1.0 - d, 6.0) * uCore;
+  if (uPass > 1.5) col *= vec3(0.62, 0.76, 0.92); // drowned light cools
   frag = vec4(col * a * uAlpha * vFade, 1.0);
 }`;
 
@@ -589,22 +777,59 @@ const BG_FS = /* glsl */`#version 300 es
 precision highp float;
 uniform vec2 uRes;
 uniform vec3 uSkyTop, uSkyHz, uPlainA, uPlainB, uGlow;
-uniform float uSunI, uSunX, uTime;
+uniform float uSunI, uSunX, uTime, uWater;
 uniform vec2 uPointerNdc;
 out vec4 frag;
+const float HZ = 0.44;                   // horizon height
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x),
+             mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+float fbm(vec2 p){
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p = p * 2.13 + 17.7; a *= 0.5; }
+  return v;
+}
+float rockH(float x){
+  // A craggy headland off to the right — the Cap de Creus profile.
+  float m = smoothstep(0.62, 0.96, x);
+  float r = abs(fbm(vec2(x * 7.0, 3.7)) - 0.45) * 1.6;
+  return HZ + m * (0.018 + 0.1 * r);
+}
+vec3 skyAt(vec2 p, float aspect){
+  vec2 sun = vec2(uSunX, HZ + 0.10);
+  float t = pow(clamp((p.y - HZ) / (1.0 - HZ), 0.0, 1.0), 0.72);
+  vec3 col = mix(uSkyHz, uSkyTop, t);
+  col += vec3(0.05, 0.02, -0.02) * sin(p.y * 40.0 + uTime * 0.05) * 0.12 * (1.0 - t);
+  // Sculpted clouds, drifting almost imperceptibly, lit by the low sun.
+  float cl = fbm(vec2(p.x * 2.6 + uTime * 0.006, p.y * 7.5 - uTime * 0.002));
+  float band = smoothstep(0.48, 0.75, cl)
+             * smoothstep(0.98, 0.62, p.y)
+             * smoothstep(HZ + 0.02, HZ + 0.17, p.y);
+  vec2 ds = vec2((p.x - sun.x) * aspect, p.y - sun.y);
+  float sunNear = exp(-dot(ds, ds) * 3.2);
+  vec3 cloudCol = mix(uSkyTop * 0.72, uGlow * 1.25, clamp(sunNear * 1.4, 0.0, 1.0));
+  col = mix(col, cloudCol, band * 0.5);
+  // The headland silhouette, faintly rimmed on its sunward side.
+  float rock = step(HZ, p.y) * step(p.y, rockH(p.x));
+  vec3 rockCol = uPlainB * 0.55 + uGlow * 0.08 * exp(-abs(p.x - sun.x) * 2.4);
+  col = mix(col, rockCol, rock);
+  // The low sun itself: a core and a wide bloom.
+  float dd = dot(ds, ds);
+  col += uGlow * (exp(-dd * 320.0) * 0.9 + exp(-dd * 22.0) * 0.28) * uSunI * (1.0 - rock * 0.85);
+  return col;
+}
 void main(){
   vec2 uv = gl_FragCoord.xy / uRes;      // y up
   float aspect = uRes.x / uRes.y;
-  const float HZ = 0.44;                 // horizon height
   vec2 sun = vec2(uSunX, HZ + 0.10);
 
   vec3 col;
   if (uv.y > HZ) {
-    // Sky: horizon amber into dusk blue, banded faintly like a long exposure.
-    float t = pow((uv.y - HZ) / (1.0 - HZ), 0.72);
-    col = mix(uSkyHz, uSkyTop, t);
-    col += vec3(0.05, 0.02, -0.02) * sin(uv.y * 40.0 + uTime * 0.05) * 0.12 * (1.0 - t);
+    col = skyAt(uv, aspect);
   } else {
     // The plain, falling away to darkness at the near edge.
     float t = pow((HZ - uv.y) / HZ, 0.85);
@@ -614,21 +839,77 @@ void main(){
     float refl = exp(-dx * dx * 55.0) * exp(-(HZ - uv.y) * 6.5);
     refl *= 0.75 + 0.25 * sin(uv.y * 220.0 + uTime * 0.6);
     col += uGlow * refl * 0.4 * uSunI;
+    if (uWater > 0.001) {
+      // A still bay: the sky mirrored with a slow ripple, cooled, deepening
+      // to darkness at the near shore.
+      float rip = (vnoise(vec2(uv.x * 46.0, uv.y * 150.0 - uTime * 0.55)) - 0.5)
+                * 0.016 * (1.0 + (HZ - uv.y) * 2.5);
+      vec3 mir = skyAt(vec2(uv.x + rip, HZ + (HZ - uv.y) * (1.0 + rip * 4.0)), aspect);
+      mir *= vec3(0.86, 0.92, 1.02) * 0.85;
+      mir = mix(mir, uPlainB * 0.5, pow(clamp((HZ - uv.y) / HZ, 0.0, 1.0), 1.5) * 0.75);
+      col = mix(col, mir, uWater);
+    }
+    // The wide sun bloom crossing the horizon onto the ground.
+    vec2 d2 = vec2(dx, uv.y - sun.y);
+    col += uGlow * exp(-dot(d2, d2) * 22.0) * 0.28 * uSunI * (1.0 - uWater * 0.45);
   }
-
-  // The low sun itself: a core and a wide bloom that crosses the horizon.
-  vec2 d = vec2((uv.x - sun.x) * aspect, uv.y - sun.y);
-  float dd = dot(d, d);
-  col += uGlow * (exp(-dd * 320.0) * 0.9 + exp(-dd * 22.0) * 0.28) * uSunI;
 
   // A faint gold presence under the cursor.
   vec2 m = vec2((uPointerNdc.x * 0.5 + 0.5 - uv.x) * aspect, (uPointerNdc.y * 0.5 + 0.5) - uv.y);
   col += uGlow * 0.1 * exp(-dot(m, m) * 14.0);
 
-  // Vignette and grain.
+  frag = vec4(col, 1.0);
+}`;
+
+// ---------------------------------------------------------------------------
+// Post-processing — the varnish: bloom, grain, vignette, a breath of lens
+// ---------------------------------------------------------------------------
+
+const BRIGHT_FS = /* glsl */`#version 300 es
+precision highp float;
+uniform sampler2D uScene;
+uniform vec2 uRes;
+out vec4 frag;
+void main(){
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec3 c = texture(uScene, uv).rgb;
+  frag = vec4(max(c - 0.78, 0.0) * 1.3, 1.0);
+}`;
+
+const BLUR_FS = /* glsl */`#version 300 es
+precision highp float;
+uniform sampler2D uScene;
+uniform vec2 uRes, uDir;
+out vec4 frag;
+void main(){
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec2 px = uDir / uRes;
+  vec3 c = texture(uScene, uv).rgb * 0.227;
+  c += (texture(uScene, uv + px * 1.385).rgb + texture(uScene, uv - px * 1.385).rgb) * 0.316;
+  c += (texture(uScene, uv + px * 3.231).rgb + texture(uScene, uv - px * 3.231).rgb) * 0.0703;
+  frag = vec4(c, 1.0);
+}`;
+
+const COMPOSITE_FS = /* glsl */`#version 300 es
+precision highp float;
+uniform sampler2D uScene, uBloom;
+uniform vec2 uRes;
+uniform float uTime, uBloomK;
+out vec4 frag;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+void main(){
+  vec2 uv = gl_FragCoord.xy / uRes;
   vec2 vc = uv - 0.5;
-  col *= 1.0 - dot(vc, vc) * 0.55;
-  col += (hash(gl_FragCoord.xy + fract(uTime) * 61.7) - 0.5) * 0.03;
+  float r2 = dot(vc, vc);
+  // A whisper of lens: colour planes part slightly toward the edges.
+  vec2 ca = vc * r2 * 0.009;
+  vec3 col;
+  col.r = texture(uScene, uv - ca).r;
+  col.g = texture(uScene, uv).g;
+  col.b = texture(uScene, uv + ca).b;
+  col += texture(uBloom, uv).rgb * uBloomK;
+  col *= 1.0 - r2 * 0.55;                                        // vignette
+  col += (hash(gl_FragCoord.xy + fract(uTime) * 61.7) - 0.5) * 0.032; // grain
   frag = vec4(col, 1.0);
 }`;
 
@@ -707,6 +988,8 @@ function createEngine(canvas) {
     state.targetA = makeTargetTex();
     state.targetB = makeTargetTex();
     state.targetC = makeTargetTex();
+    state.targetD = makeTargetTex();
+    state.reflUploaded = false;
     gl.bindFramebuffer(gl.FRAMEBUFFER, state.texA.fbo);
     gl.viewport(0, 0, simSize, simSize);
     gl.useProgram(progInit.p);
@@ -717,8 +1000,38 @@ function createEngine(canvas) {
   const progStep = program(FULLSCREEN_VS, SIM_STEP_FS);
   const progPts = program(POINTS_VS, POINTS_FS);
   const progBg = program(FULLSCREEN_VS, BG_FS);
+  const progBright = program(FULLSCREEN_VS, BRIGHT_FS);
+  const progBlur = program(FULLSCREEN_VS, BLUR_FS);
+  const progComp = program(FULLSCREEN_VS, COMPOSITE_FS);
 
   buildSim();
+
+  // Post-processing targets, rebuilt whenever the canvas changes size.
+  const post = { w: 0, h: 0 };
+  const makeRT = (w, h) => {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    return { tex, fbo, w, h };
+  };
+  const ensurePost = () => {
+    if (post.w === canvas.width && post.h === canvas.height) return;
+    for (const k of ['scene', 'bloomA', 'bloomB']) {
+      if (post[k]) { gl.deleteTexture(post[k].tex); gl.deleteFramebuffer(post[k].fbo); }
+    }
+    post.w = canvas.width; post.h = canvas.height;
+    post.scene = makeRT(post.w, post.h);
+    const bw = Math.max(8, post.w >> 2), bh = Math.max(8, post.h >> 2);
+    post.bloomA = makeRT(bw, bh);
+    post.bloomB = makeRT(bw, bh);
+  };
 
   const targetCache = new Map();
   const uploadTarget = (tex, sceneIdx) => {
@@ -766,8 +1079,13 @@ function createEngine(canvas) {
     uploadTargets(i, j) {
       uploadTarget(state.targetA, i);
       uploadTarget(state.targetB, j);
-      // Face C (the clock) rides along whenever plate iv is in the pair.
-      uploadTarget(state.targetC, i === 3 || j === 3 ? 5 : i);
+      // Face C (the clock) rides along whenever the double plate is in the pair.
+      uploadTarget(state.targetC, i === DOUBLE_I || j === DOUBLE_I ? CLOCK_I : i);
+      // The reflection's second shape never changes; upload it once.
+      if (!state.reflUploaded) {
+        uploadTarget(state.targetD, REFL_I);
+        state.reflUploaded = true;
+      }
     },
     frame(o) {
       const H = 1 / 90;
@@ -814,8 +1132,9 @@ function createEngine(canvas) {
         const tmp = state.texA; state.texA = state.texB; state.texB = tmp;
       }
 
-      // ---- render ----------------------------------------------------
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      // ---- render (into the scene target for the post pass) ----------
+      ensurePost();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, post.scene.fbo);
       gl.viewport(0, 0, canvas.width, canvas.height);
 
       gl.useProgram(progBg.p);
@@ -828,6 +1147,7 @@ function createEngine(canvas) {
       gl.uniform3fv(bu.uGlow, o.p.skyHz);
       gl.uniform1f(bu.uSunI, o.p.sunI);
       gl.uniform1f(bu.uSunX, o.p.sunX);
+      gl.uniform1f(bu.uWater, o.water);
       gl.uniform2fv(bu.uPointerNdc, o.pointerNdc);
       gl.uniform1f(bu.uTime, o.time);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -847,6 +1167,9 @@ function createEngine(canvas) {
       gl.uniform2f(pu.uSunSlant, -0.55, 0.3);
       gl.uniform3fv(pu.uColA, o.p.colA);
       gl.uniform3fv(pu.uColB, o.p.colB);
+      gl.uniform1f(pu.uTime, o.time);
+      gl.uniform3fv(pu.uShift, o.shift);
+      gl.uniform1f(pu.uWaterY, WATER_Y + o.shift[1]);
 
       const count = Math.floor(simSize * simSize * o.drawFraction);
 
@@ -855,21 +1178,66 @@ function createEngine(canvas) {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.uniform1f(pu.uPass, 0);
       gl.uniform1f(pu.uPointSize, o.p.size * 2.2);
-      gl.uniform1f(pu.uAlpha, 0.05);
+      gl.uniform1f(pu.uAlpha, 0.05 * (1.0 - o.water * 0.9));
       gl.uniform1f(pu.uCore, 0.0);
       gl.drawArrays(gl.POINTS, 0, Math.floor(count / 2));
 
-      // Passes 2 and 3: the glowing body — halo, then sharp core. Additive.
+      // Pass 2: the reflection in the bay — the same grains mirrored, morphed
+      // toward the shape the water insists on. Additive, drowned, wavering.
       gl.blendFunc(gl.ONE, gl.ONE);
+      if (o.water > 0.02) {
+        bind(2, state.targetD, pu.uReflTarget);
+        gl.uniform1f(pu.uPass, 2);
+        gl.uniform1f(pu.uReflMorph, o.water * 0.97);
+        gl.uniform1f(pu.uPointSize, o.p.size * 1.15);
+        gl.uniform1f(pu.uAlpha, o.p.alpha * 0.75 * o.water);
+        gl.uniform1f(pu.uCore, 0.35);
+        gl.drawArrays(gl.POINTS, 0, Math.floor(count / 2));
+      }
+
+      // Passes 3 and 4: the glowing body — halo, then sharp core. Additive.
       gl.uniform1f(pu.uPass, 1);
       gl.uniform1f(pu.uPointSize, o.p.size * 4.5);
       gl.uniform1f(pu.uAlpha, o.p.alpha * 0.035 * o.p.halo);
+      gl.uniform1f(pu.uCore, 0.0);
       gl.drawArrays(gl.POINTS, 0, Math.floor(count / 3));
 
       gl.uniform1f(pu.uPointSize, o.p.size);
       gl.uniform1f(pu.uAlpha, o.p.alpha);
       gl.uniform1f(pu.uCore, 0.55);
       gl.drawArrays(gl.POINTS, 0, count);
+
+      // ---- post: bloom, then the varnish ----------------------------
+      gl.disable(gl.BLEND);
+      if (o.bloom) {
+        gl.useProgram(progBright.p);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, post.bloomA.fbo);
+        gl.viewport(0, 0, post.bloomA.w, post.bloomA.h);
+        bind(0, post.scene.tex, progBright.u.uScene);
+        gl.uniform2f(progBright.u.uRes, post.bloomA.w, post.bloomA.h);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        gl.useProgram(progBlur.p);
+        gl.uniform2f(progBlur.u.uRes, post.bloomA.w, post.bloomA.h);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, post.bloomB.fbo);
+        bind(0, post.bloomA.tex, progBlur.u.uScene);
+        gl.uniform2f(progBlur.u.uDir, 1, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, post.bloomA.fbo);
+        bind(0, post.bloomB.tex, progBlur.u.uScene);
+        gl.uniform2f(progBlur.u.uDir, 0, 1);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+
+      gl.useProgram(progComp.p);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      bind(0, post.scene.tex, progComp.u.uScene);
+      bind(1, o.bloom ? post.bloomA.tex : post.scene.tex, progComp.u.uBloom);
+      gl.uniform2f(progComp.u.uRes, canvas.width, canvas.height);
+      gl.uniform1f(progComp.u.uTime, o.time);
+      gl.uniform1f(progComp.u.uBloomK, o.bloom ? 0.7 : 0.0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
     },
   };
 }
@@ -1199,8 +1567,8 @@ function loop(now) {
   if (engine) {
     engine.resize(LADDER[quality].maxDpr);
 
-    // The paranoiac plate: how present is plate iv right now?
-    const w3 = clamp(1 - Math.abs(sfEase - 3), 0, 1);
+    // The paranoiac plate: how present is the double image right now?
+    const w3 = clamp(1 - Math.abs(sfEase - DOUBLE_I), 0, 1);
     // Drag turns the object; turning reveals the second image. Idle, the
     // dream turns it slowly by itself. A wide face-on dead zone keeps the
     // word pure while the cursor merely rests over the copy.
@@ -1231,8 +1599,9 @@ function loop(now) {
     engine.frame({
       dt: rawDt, time, morph,
       double: doubleEase,
-      doubleSlot: pairI === 3 ? 0 : pairI + 1 === 3 ? 1 : -1,
+      doubleSlot: pairI === DOUBLE_I ? 0 : pairI + 1 === DOUBLE_I ? 1 : -1,
       doubleYaw: yaw,
+      water: currentParams.water,
       p: currentParams,
       breathA: reduced ? 0 : currentParams.breathA,
       breathR: currentParams.breathR,
@@ -1243,6 +1612,7 @@ function loop(now) {
       pointerActive: pointer.active,
       shock,
       drawFraction: LADDER[quality].frac,
+      bloom: quality <= 1,
       turbo: TURBO,
       calm: CALM,
     });
@@ -1259,7 +1629,7 @@ function loop(now) {
     const fps = Math.round(1000 / emaDt);
     const grains = engine ? Math.round(engine.particleCount * LADDER[quality].frac / 1000) : 0;
     vitals.textContent =
-      `PERSISTENCE · sueño\nfps ${String(fps).padStart(3)} · grains ${grains}k · plate ${['i', 'ii', 'iii', 'iv', 'v'][Math.round(clamp(sfEase, 0, 4))]}`;
+      `PERSISTENCE · sueño\nfps ${String(fps).padStart(3)} · grains ${grains}k · plate ${['i', 'ii', 'iii', 'iv', 'v', 'vi'][Math.round(clamp(sfEase, 0, 5))]}`;
   }
 }
 requestAnimationFrame(loop);
