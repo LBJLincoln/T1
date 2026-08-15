@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PERSISTENCE — a computed dream after Dalí</title>
+<meta name="description" content="A surrealist dreamscape computed live in your browser: a clock that melts, elephants on impossible legs, and a double image that becomes something else when you turn it. An homage in the visual language of Salvador Dalí — every shape procedural, no images.">
+<meta name="theme-color" content="#10233c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2310233c'/%3E%3Ccircle cx='16' cy='14' r='9' fill='none' stroke='%23e0a83c' stroke-width='2'/%3E%3Cpath d='M16 14 L16 8 M16 14 L21 16' stroke='%23e0a83c' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M8 23 Q 16 27 24 23' fill='none' stroke='%23e0a83c' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="skip" href="#content">Skip to content</a>
+
+<canvas id="gl" aria-hidden="true"></canvas>
+
+<div id="intro" aria-hidden="true">
+  <div class="intro-word"><span>P</span><span>E</span><span>R</span><span>S</span><span>I</span><span>S</span><span>T</span><span>E</span><span>N</span><span>C</span><span>E</span></div>
+  <div class="intro-sub">a computed dream, after Dalí</div>
+</div>
+
+<div id="cursor" aria-hidden="true"></div>
+<div id="cursor-ring" aria-hidden="true"></div>
+
+<nav id="dots" aria-label="Sections"></nav>
+
+<button id="sound" data-magnetic aria-pressed="false" title="Toggle sound">
+  <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+  <span class="lbl">sound</span>
+</button>
+
+<div id="vitals" aria-hidden="true"></div>
+
+<main id="content">
+
+  <section class="panel" data-title="The desert">
+    <div class="sticky"><div class="inner">
+      <p class="kicker">plate i · cap de creus</p>
+      <h2>The desert dreams.</h2>
+      <p class="copy">A hundred thousand grains of light settle into a plain that has never
+      existed, under a sun that never sets. Everything you will see is computed, this
+      instant, by the machine in your hands — hand-calculated dream photographs.
+      An egg hangs where the horizon should be. Scroll.</p>
+      <p class="hint" aria-hidden="true"><span class="hint-line"></span>descend</p>
+    </div></div>
+  </section>
+
+  <section class="panel" data-title="The watch">
+    <div class="sticky"><div class="inner">
+      <p class="kicker">plate ii · la montre molle</p>
+      <h2>Time goes soft.</h2>
+      <p class="copy">The clock keeps perfect time and cannot hold its shape — it sags,
+      drips, gathers itself, and sags again, forever. Bring your cursor close:
+      wherever you touch, the hour melts faster.</p>
+    </div></div>
+  </section>
+
+  <section class="panel" data-title="The elephants">
+    <div class="sticky"><div class="inner">
+      <p class="kicker">plate iii · les éléphants</p>
+      <h2>The elephants pass.</h2>
+      <p class="copy">On legs a hundred times too thin they carry their own weight lightly,
+      the way impossible things do. Their shadows are longer than the day.
+      They notice your cursor and would rather keep their distance.</p>
+    </div></div>
+  </section>
+
+  <section class="panel" data-title="The double image">
+    <div class="sticky"><div class="inner">
+      <p class="kicker">plate iv · méthode paranoïaque-critique</p>
+      <h2>It is two things.</h2>
+      <p class="copy">Dalí trained himself to see one form as another and called it the
+      paranoiac-critical method. Here it is, computed: <b>drag left and right</b>.
+      Face on, it is a word. Turned, the same points of light insist
+      they were always a clock.</p>
+    </div></div>
+  </section>
+
+  <section class="panel" data-title="Galatea">
+    <div class="sticky"><div class="inner">
+      <p class="kicker">plate v · galatea de las esferas</p>
+      <h2>She is made of spheres.</h2>
+      <p class="copy">Matter is mostly emptiness arranged with conviction. The dome hangs
+      together out of habit, sphere by sphere. Move — it leans toward your hand.
+      Click — it remembers being struck, then forgives.</p>
+    </div></div>
+  </section>
+
+  <section class="panel last" data-title="Awake">
+    <div class="sticky"><div class="inner">
+      <p class="kicker">colophon</p>
+      <h2>Painted with<br>arithmetic.</h2>
+      <p class="copy">No images, no video, no libraries. Every soft watch and stilted
+      elephant is a procedural shape; the melting is a force field; the double image
+      is the same hundred thousand particles seen from a different angle.
+      The dream adapts its own fidelity to your hardware while you read this.</p>
+      <div class="actions">
+        <button class="btn" id="replay" data-magnetic>Dream again</button>
+        <button class="btn" id="sound2" data-magnetic>Sound</button>
+      </div>
+      <p class="fine-print">PERSISTENCE · an homage in the visual language of Salvador Dalí ·
+      every shape computed, nothing depicted from his works · honours <code>prefers-reduced-motion</code></p>
+    </div></div>
+  </section>
+
+</main>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
